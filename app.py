@@ -35,7 +35,7 @@ def load_credentials():
     if os.path.exists("config.json"):
         with open("config.json", "r") as file:
             config = json.load(file)
-        return config.get("OPEN_API_KEY"), config.gat("OPENAI_API_BASE")
+        return config.get("OPENAI_API_KEY"), config.get("OPENAI_API_BASE")
     st.error("OpenAI credentials not found. Set them in App Settings -> Secrets.")
     st.stop()
 
@@ -173,6 +173,7 @@ def order_agent(query: str, order_id: str, history: list) -> tuple:
     max_iterations = 5
 
     for _ in range(max_iterations):
+        print(">>> order_agent LLM call")
         ai_msg = llm_with_tools.invoke(messages)
         messages.append(ai_msg)
 
@@ -204,6 +205,7 @@ def memory_node(state: OrderState):
     return state
 
 def order_agent_node(state: OrderState):
+    print(">>> order_agent_node")
     order_context, final_response = order_agent(
         query=state["query"],
         order_id=state["order_id"],
@@ -218,6 +220,7 @@ def order_agent_node(state: OrderState):
     }
 
 def intent_node(state: OrderState):
+    print(">>> intent_node")
     prompt = f"""You are an intent classifier for customer service queries. Classify the user's query into one of these categories.
 Return ONLY the numeric ID (0, 1, 2, or 3). No explanation.
 
@@ -299,6 +302,7 @@ def retry_router(state: OrderState):
     return "safety_check"
 
 def guard_node(state: OrderState):
+    print(">>> guard_node")
     prompt = f"""You are a content safety assistant. Your task is to classify if the assistant's response is appropriate.
 If the message contains:
 - Requests for bank details, OTPs, account numbers
@@ -321,6 +325,7 @@ def guard_router(state: OrderState):
     return "exit" if state.get("guard_result") == "BLOCK" else "memory_save"
 
 def conversational_guard_node(state: OrderState):
+    print(">>> conv_guard_node")
     prompt = f"""You are a conversation monitor AI. Review the conversation and detect if the assistant:
 - Repeatedly gives the same advice to multiple questions
 - Offers solutions the user did not ask for
@@ -330,7 +335,12 @@ If any occur, return BLOCK. Otherwise return SAFE.
 
 Conversation:
 {state.get('history', [])}"""
-    result = evaluate_llm.invoke([HumanMessage(content=prompt)]).content.strip()
+    print(">>> conv_guard prompt:", repr(prompt))
+    try:
+        result = evaluate_llm.invoke([HumanMessage(content=prompt)]).content.strip()
+    except Exception as e:
+        print(f">>> conv_guard call failed ({type(e).__name__}) - defaulting to SAFE")
+        result = "SAFE"
     conv_result = result if result in ("BLOCK", "SAFE") else "SAFE"
     if conv_result == "BLOCK":
         return {
@@ -611,3 +621,4 @@ else:
         ]
         if any(p.lower() in response.lower() for p in exit_phrases):
             st.info("This conversation has ended. Use **New Session** in the sidebar to start over.")
+
